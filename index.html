@@ -466,19 +466,6 @@
       }
 
       const receiptText = getCurrentReceiptText();
-      const fileName = `receipt-${Date.now()}.txt`;
-      const textBlob = new Blob([receiptText], { type: 'text/plain;charset=utf-8' });
-      const textFile = new File([textBlob], fileName, { type: 'text/plain;charset=utf-8' });
-
-      if (navigator.canShare && navigator.canShare({ files: [textFile] })) {
-        await navigator.share({
-          title: 'Чек',
-          text: 'Чек к печати',
-          files: [textFile],
-        });
-        return;
-      }
-
       await navigator.share({
         title: 'Чек',
         text: receiptText,
