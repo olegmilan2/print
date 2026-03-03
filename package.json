@@ -1,0 +1,10 @@
+{
+  "name": "untitled2",
+  "version": "1.0.0",
+  "description": "Simple receipt CLI with printer support",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "private": true
+}
