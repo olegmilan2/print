@@ -208,6 +208,29 @@
       if (!Number.isFinite(n)) return '0';
       return n.toFixed(2).replace(/\.?0+$/, '');
     };
+    const CP866_CHAR_MAP = {
+      'А': 0x80, 'Б': 0x81, 'В': 0x82, 'Г': 0x83, 'Д': 0x84, 'Е': 0x85, 'Ж': 0x86, 'З': 0x87,
+      'И': 0x88, 'Й': 0x89, 'К': 0x8A, 'Л': 0x8B, 'М': 0x8C, 'Н': 0x8D, 'О': 0x8E, 'П': 0x8F,
+      'Р': 0x90, 'С': 0x91, 'Т': 0x92, 'У': 0x93, 'Ф': 0x94, 'Х': 0x95, 'Ц': 0x96, 'Ч': 0x97,
+      'Ш': 0x98, 'Щ': 0x99, 'Ъ': 0x9A, 'Ы': 0x9B, 'Ь': 0x9C, 'Э': 0x9D, 'Ю': 0x9E, 'Я': 0x9F,
+      'а': 0xA0, 'б': 0xA1, 'в': 0xA2, 'г': 0xA3, 'д': 0xA4, 'е': 0xA5, 'ж': 0xA6, 'з': 0xA7,
+      'и': 0xA8, 'й': 0xA9, 'к': 0xAA, 'л': 0xAB, 'м': 0xAC, 'н': 0xAD, 'о': 0xAE, 'п': 0xAF,
+      'р': 0xE0, 'с': 0xE1, 'т': 0xE2, 'у': 0xE3, 'ф': 0xE4, 'х': 0xE5, 'ц': 0xE6, 'ч': 0xE7,
+      'ш': 0xE8, 'щ': 0xE9, 'ъ': 0xEA, 'ы': 0xEB, 'ь': 0xEC, 'э': 0xED, 'ю': 0xEE, 'я': 0xEF,
+      'Ё': 0xF0, 'ё': 0xF1, '№': 0xFC
+    };
+    const encodeCp866 = (text) => {
+      const bytes = [];
+      for (const ch of text) {
+        const code = ch.charCodeAt(0);
+        if (code <= 0x7F) {
+          bytes.push(code);
+          continue;
+        }
+        bytes.push(CP866_CHAR_MAP[ch] ?? 0x3F);
+      }
+      return new Uint8Array(bytes);
+    };
     const escapeHtml = (text) => String(text)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -381,9 +404,12 @@
 
       const device = await navigator.bluetooth.requestDevice({
         filters: [
+          { name: 'P502A-1529' },
           { name: 'Xprinter XP-P502A' },
+          { namePrefix: 'P502A' },
           { namePrefix: 'Xprinter' },
           { namePrefix: 'XP-P502A' },
+          { namePrefix: 'XP-' },
         ],
         optionalServices: [
           'battery_service',
@@ -420,8 +446,12 @@
         throw new Error('Сначала подключите Bluetooth-принтер.');
       }
       const receiptText = getCurrentReceiptText();
-      const encoder = new TextEncoder();
-      const payload = encoder.encode(receiptText + '\n\n');
+      // ESC @ (init), ESC t 17 (CP866), text, LF LF
+      const init = new Uint8Array([0x1B, 0x40, 0x1B, 0x74, 0x11]);
+      const text = encodeCp866(receiptText + '\n\n');
+      const payload = new Uint8Array(init.length + text.length);
+      payload.set(init, 0);
+      payload.set(text, init.length);
       await writeChunks(btWriteCharacteristic, payload);
     };
 
@@ -449,7 +479,11 @@
       try {
         await connectBluetoothPrinter();
       } catch (error) {
-        setBtStatus(`ошибка: ${error.message}`);
+        if (error && error.name === 'NotFoundError') {
+          setBtStatus('принтер не найден в BLE. Для этой модели используйте кнопку "Печать" и выберите системный принтер macOS.');
+        } else {
+          setBtStatus(`ошибка: ${error.message}`);
+        }
       }
     });
 
