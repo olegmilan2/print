@@ -1,10 +1,40 @@
 {
-  "name": "untitled2",
+  "name": "print-cashier",
+  "productName": "Print Cashier",
   "version": "1.0.0",
-  "description": "Simple receipt CLI with printer support",
-  "main": "index.js",
+  "description": "Receipt app for macOS with printable checks",
+  "main": "electron/main.js",
+  "private": true,
   "scripts": {
-    "start": "node index.js"
+    "start": "electron .",
+    "start:cli": "node index.js",
+    "pack": "electron-builder --dir",
+    "dist:mac": "electron-builder --mac dmg zip"
   },
-  "private": true
+  "devDependencies": {
+    "electron": "^36.1.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.olegmilan.print",
+    "productName": "Print Cashier",
+    "files": [
+      "electron/**/*",
+      "index.html",
+      "src/**/*",
+      "index.js",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
 }

@@ -112,8 +112,11 @@
     <section class="card">
       <h2>Чек</h2>
       <div id="receipt" class="receipt">Чек появится здесь...</div>
+      <p id="bt-status" style="margin: 10px 0 0; font-size: 13px;">Bluetooth: не подключен</p>
       <div class="actions" style="margin-top: 10px;">
         <button id="print" class="btn-accent">Печать</button>
+        <button id="bt-connect">Подключить Bluetooth</button>
+        <button id="bt-print" class="btn-accent">Печать по Bluetooth</button>
       </div>
     </section>
   </div>
@@ -124,6 +127,12 @@
     const addBtn = document.getElementById('add');
     const buildBtn = document.getElementById('build');
     const printBtn = document.getElementById('print');
+    const btConnectBtn = document.getElementById('bt-connect');
+    const btPrintBtn = document.getElementById('bt-print');
+    const btStatusEl = document.getElementById('bt-status');
+
+    let btDevice = null;
+    let btWriteCharacteristic = null;
 
     const padRight = (v, w) => String(v).slice(0, w).padEnd(w, ' ');
     const padLeft = (v, w) => String(v).slice(0, w).padStart(w, ' ');
@@ -184,6 +193,86 @@
       return lines.join('\n');
     };
 
+    const setBtStatus = (text) => {
+      btStatusEl.textContent = `Bluetooth: ${text}`;
+    };
+
+    const getCurrentReceiptText = () => {
+      const current = receiptEl.textContent.trim();
+      if (current && current !== 'Чек появится здесь...' && current !== 'Добавьте хотя бы одну корректную позицию.') {
+        return current + '\n';
+      }
+
+      const items = collect();
+      if (!items.length) {
+        throw new Error('Добавьте хотя бы одну корректную позицию.');
+      }
+
+      const generated = buildReceipt(items);
+      receiptEl.textContent = generated;
+      return generated + '\n';
+    };
+
+    const findWritableCharacteristic = async (server) => {
+      const services = await server.getPrimaryServices();
+      for (const service of services) {
+        const characteristics = await service.getCharacteristics();
+        for (const characteristic of characteristics) {
+          if (characteristic.properties.write || characteristic.properties.writeWithoutResponse) {
+            return characteristic;
+          }
+        }
+      }
+      return null;
+    };
+
+    const connectBluetoothPrinter = async () => {
+      if (!navigator.bluetooth) {
+        throw new Error('Web Bluetooth не поддерживается в этом браузере.');
+      }
+
+      const device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [
+          'battery_service',
+          'device_information',
+          '0000ffe0-0000-1000-8000-00805f9b34fb',
+          '000018f0-0000-1000-8000-00805f9b34fb',
+        ],
+      });
+
+      const server = await device.gatt.connect();
+      const writable = await findWritableCharacteristic(server);
+      if (!writable) {
+        throw new Error('Не найдена характеристика записи. Принтер может быть не BLE.');
+      }
+
+      btDevice = device;
+      btWriteCharacteristic = writable;
+      setBtStatus(`подключен: ${device.name || 'Unknown device'}`);
+    };
+
+    const writeChunks = async (characteristic, bytes, size = 180) => {
+      for (let offset = 0; offset < bytes.length; offset += size) {
+        const chunk = bytes.slice(offset, offset + size);
+        if (characteristic.properties.writeWithoutResponse) {
+          await characteristic.writeValueWithoutResponse(chunk);
+        } else {
+          await characteristic.writeValue(chunk);
+        }
+      }
+    };
+
+    const printViaBluetooth = async () => {
+      if (!btWriteCharacteristic) {
+        throw new Error('Сначала подключите Bluetooth-принтер.');
+      }
+      const receiptText = getCurrentReceiptText();
+      const encoder = new TextEncoder();
+      const payload = encoder.encode(receiptText + '\n\n');
+      await writeChunks(btWriteCharacteristic, payload);
+    };
+
     addBtn.addEventListener('click', () => addRow());
 
     buildBtn.addEventListener('click', () => {
@@ -196,6 +285,24 @@
     });
 
     printBtn.addEventListener('click', () => window.print());
+
+    btConnectBtn.addEventListener('click', async () => {
+      setBtStatus('подключение...');
+      try {
+        await connectBluetoothPrinter();
+      } catch (error) {
+        setBtStatus(`ошибка: ${error.message}`);
+      }
+    });
+
+    btPrintBtn.addEventListener('click', async () => {
+      try {
+        await printViaBluetooth();
+        setBtStatus(`чек отправлен: ${btDevice?.name || 'Unknown device'}`);
+      } catch (error) {
+        setBtStatus(`ошибка: ${error.message}`);
+      }
+    });
 
     addRow();
   </script>
