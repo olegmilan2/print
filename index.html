@@ -151,9 +151,11 @@
       <p id="bt-status" style="margin: 10px 0 0; font-size: 13px;">Bluetooth: не подключен</p>
       <div class="actions" style="margin-top: 10px;">
         <button id="print" class="btn-accent">Печать</button>
+        <button id="share">Поделиться чеком</button>
         <button id="bt-connect">Подключить Bluetooth</button>
         <button id="bt-print" class="btn-accent">Печать по Bluetooth</button>
       </div>
+      <p id="share-hint" style="margin: 8px 0 0; font-size: 13px; display:none;">Для iPhone: нажмите «Поделиться чеком» и выберите приложение принтера.</p>
       <div class="history">
         <div class="actions" style="margin-bottom: 8px;">
           <h3 style="margin:0; align-self:center;">История чеков</h3>
@@ -171,9 +173,11 @@
     const buildBtn = document.getElementById('build');
     const newCheckBtn = document.getElementById('new-check');
     const printBtn = document.getElementById('print');
+    const shareBtn = document.getElementById('share');
     const btConnectBtn = document.getElementById('bt-connect');
     const btPrintBtn = document.getElementById('bt-print');
     const btStatusEl = document.getElementById('bt-status');
+    const shareHintEl = document.getElementById('share-hint');
     const viewModeEl = document.getElementById('view-mode');
     const historyListEl = document.getElementById('history-list');
     const clearHistoryBtn = document.getElementById('clear-history');
@@ -237,6 +241,7 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+    const isIos = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
     const loadHistory = () => {
       try {
@@ -455,6 +460,31 @@
       await writeChunks(btWriteCharacteristic, payload);
     };
 
+    const shareReceipt = async () => {
+      if (!navigator.share) {
+        throw new Error('Функция Поделиться не поддерживается в этом браузере.');
+      }
+
+      const receiptText = getCurrentReceiptText();
+      const fileName = `receipt-${Date.now()}.txt`;
+      const textBlob = new Blob([receiptText], { type: 'text/plain;charset=utf-8' });
+      const textFile = new File([textBlob], fileName, { type: 'text/plain;charset=utf-8' });
+
+      if (navigator.canShare && navigator.canShare({ files: [textFile] })) {
+        await navigator.share({
+          title: 'Чек',
+          text: 'Чек к печати',
+          files: [textFile],
+        });
+        return;
+      }
+
+      await navigator.share({
+        title: 'Чек',
+        text: receiptText,
+      });
+    };
+
     addBtn.addEventListener('click', () => addRow());
 
     buildBtn.addEventListener('click', () => {
@@ -473,6 +503,15 @@
     });
 
     printBtn.addEventListener('click', () => window.print());
+
+    shareBtn.addEventListener('click', async () => {
+      try {
+        await shareReceipt();
+      } catch (error) {
+        if (error && error.name === 'AbortError') return;
+        setBtStatus(`ошибка share: ${error.message}`);
+      }
+    });
 
     btConnectBtn.addEventListener('click', async () => {
       setBtStatus('подключение...');
@@ -520,6 +559,16 @@
       newCheckBtn.style.display = 'none';
       receiptEl.textContent = 'Чек появится здесь...';
     });
+
+    if (!navigator.bluetooth) {
+      btConnectBtn.style.display = 'none';
+      btPrintBtn.style.display = 'none';
+      setBtStatus('Bluetooth Web API недоступен. Используйте «Печать» или «Поделиться чеком».');
+    }
+
+    if (isIos) {
+      shareHintEl.style.display = 'block';
+    }
 
     addRow();
     renderHistory();
