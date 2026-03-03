@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Печать чеков</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --paper: #fffdf9;
+      --ink: #1f1b16;
+      --line: #d7cbb7;
+      --accent: #b55e2d;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at top right, #e9dfcf, var(--bg) 45%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(43, 30, 14, 0.08);
+    }
+
+    h1, h2 { margin: 0 0 12px; }
+
+    .row {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr auto;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    input, button {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      font-size: 14px;
+    }
+
+    button {
+      cursor: pointer;
+      background: #fff;
+    }
+
+    .btn-accent {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .receipt {
+      background: #fff;
+      border: 1px dashed #999;
+      padding: 12px;
+      white-space: pre;
+      font-family: "Courier New", monospace;
+      font-size: 13px;
+      min-height: 360px;
+      overflow: auto;
+    }
+
+    .actions { display: flex; gap: 8px; }
+
+    @media (max-width: 860px) {
+      .wrap { grid-template-columns: 1fr; }
+      .row { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      body { background: #fff; padding: 0; }
+      .wrap { display: block; }
+      .card:first-child { display: none; }
+      .card:last-child { border: none; box-shadow: none; padding: 0; }
+      .receipt { border: none; min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card">
+      <h1>Касса</h1>
+      <p>Добавляй позиции и печатай чек.</p>
+
+      <div id="items"></div>
+
+      <div class="actions">
+        <button id="add">+ Добавить позицию</button>
+        <button id="build" class="btn-accent">Сформировать чек</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Чек</h2>
+      <div id="receipt" class="receipt">Чек появится здесь...</div>
+      <div class="actions" style="margin-top: 10px;">
+        <button id="print" class="btn-accent">Печать</button>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const itemsEl = document.getElementById('items');
+    const receiptEl = document.getElementById('receipt');
+    const addBtn = document.getElementById('add');
+    const buildBtn = document.getElementById('build');
+    const printBtn = document.getElementById('print');
+
+    const padRight = (v, w) => String(v).slice(0, w).padEnd(w, ' ');
+    const padLeft = (v, w) => String(v).slice(0, w).padStart(w, ' ');
+
+    const addRow = (name = '', qty = '', price = '') => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = `
+        <input placeholder="Название" value="${name}" />
+        <input type="number" step="0.01" min="0" placeholder="Кол-во" value="${qty}" />
+        <input type="number" step="0.01" min="0" placeholder="Цена" value="${price}" />
+        <button type="button">X</button>
+      `;
+      row.querySelector('button').addEventListener('click', () => row.remove());
+      itemsEl.appendChild(row);
+    };
+
+    const collect = () => {
+      const rows = [...itemsEl.querySelectorAll('.row')];
+      const items = [];
+      for (const row of rows) {
+        const [nameEl, qtyEl, priceEl] = row.querySelectorAll('input');
+        const name = nameEl.value.trim();
+        const qty = Number(qtyEl.value);
+        const price = Number(priceEl.value);
+        if (!name) continue;
+        if (!Number.isFinite(qty) || qty <= 0) continue;
+        if (!Number.isFinite(price) || price <= 0) continue;
+        items.push({ name, qty, price });
+      }
+      return items;
+    };
+
+    const buildReceipt = (items) => {
+      const now = new Date();
+      const receiptNo = now.getTime();
+      const lines = [];
+      lines.push('========================================');
+      lines.push('              KASSA RECEIPT             ');
+      lines.push('========================================');
+      lines.push(`Date: ${now.toLocaleString('ru-RU')}`);
+      lines.push(`Receipt #: ${receiptNo}`);
+      lines.push('----------------------------------------');
+      lines.push(`${padRight('Item', 18)}${padLeft('Qty', 6)}${padLeft('Price', 8)}${padLeft('Sum', 8)}`);
+      lines.push('----------------------------------------');
+
+      let total = 0;
+      for (const item of items) {
+        const sum = item.qty * item.price;
+        total += sum;
+        lines.push(`${padRight(item.name, 18)}${padLeft(item.qty.toFixed(2), 6)}${padLeft(item.price.toFixed(2), 8)}${padLeft(sum.toFixed(2), 8)}`);
+      }
+
+      lines.push('----------------------------------------');
+      lines.push(`${padRight('TOTAL:', 32)}${padLeft(total.toFixed(2), 8)}`);
+      lines.push('========================================');
+      lines.push('Thank you for your purchase!');
+      return lines.join('\n');
+    };
+
+    addBtn.addEventListener('click', () => addRow());
+
+    buildBtn.addEventListener('click', () => {
+      const items = collect();
+      if (!items.length) {
+        receiptEl.textContent = 'Добавьте хотя бы одну корректную позицию.';
+        return;
+      }
+      receiptEl.textContent = buildReceipt(items);
+    });
+
+    printBtn.addEventListener('click', () => window.print());
+
+    addRow();
+  </script>
+</body>
+</html>
