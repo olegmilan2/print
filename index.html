@@ -232,7 +232,11 @@
       }
 
       const device = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
+        filters: [
+          { name: 'Xprinter XP-P502A' },
+          { namePrefix: 'Xprinter' },
+          { namePrefix: 'XP-P502A' },
+        ],
         optionalServices: [
           'battery_service',
           'device_information',
