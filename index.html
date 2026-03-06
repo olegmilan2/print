@@ -2,7 +2,10 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="format-detection" content="telephone=no" />
   <title>Печать чеков</title>
   <style>
     :root {
@@ -14,13 +17,18 @@
     }
 
     * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
     body {
       margin: 0;
       font-family: "Segoe UI", Tahoma, sans-serif;
       color: var(--ink);
       background: radial-gradient(circle at top right, #e9dfcf, var(--bg) 45%);
       min-height: 100vh;
-      padding: 20px;
+      padding:
+        calc(16px + env(safe-area-inset-top))
+        calc(16px + env(safe-area-inset-right))
+        calc(16px + env(safe-area-inset-bottom))
+        calc(16px + env(safe-area-inset-left));
     }
 
     .wrap {
@@ -50,10 +58,11 @@
 
     input, button {
       width: 100%;
-      padding: 10px;
+      min-height: 44px;
+      padding: 10px 12px;
       border-radius: 8px;
       border: 1px solid var(--line);
-      font-size: 14px;
+      font-size: 16px;
     }
 
     button {
@@ -79,7 +88,7 @@
       overflow: auto;
     }
 
-    .actions { display: flex; gap: 8px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .history {
       margin-top: 12px;
       border-top: 1px solid var(--line);
@@ -106,6 +115,8 @@
     @media (max-width: 860px) {
       .wrap { grid-template-columns: 1fr; }
       .row { grid-template-columns: 1fr; }
+      .card { padding: 14px; }
+      h1, h2 { margin-bottom: 10px; }
     }
 
     @media print {
@@ -241,7 +252,22 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
-    const isIos = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isIos = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const cap = window.Capacitor;
+    const isNativeCapacitor = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+    const isNativeIos = isNativeCapacitor && cap.getPlatform && cap.getPlatform() === 'ios';
+    const nativeBlePlugin = isNativeIos ? cap.Plugins?.BlePrinter : null;
+    const printerNamePrefixes = ['P502A', 'Xprinter', 'XP-P502A', 'XP-'];
+
+    const toBase64 = (bytes) => {
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      }
+      return btoa(binary);
+    };
 
     const loadHistory = () => {
       try {
@@ -403,6 +429,29 @@
     };
 
     const connectBluetoothPrinter = async () => {
+      if (nativeBlePlugin) {
+        const result = await nativeBlePlugin.scan({ timeout: 7000 });
+        const devices = Array.isArray(result?.devices) ? result.devices : [];
+        const matched = devices.find((device) => {
+          const name = String(device?.name || '').toLowerCase();
+          return printerNamePrefixes.some((prefix) => name.startsWith(prefix.toLowerCase()));
+        });
+
+        if (!matched) {
+          throw new Error(`Не найден BLE-принтер (${devices.length} устройств рядом). Убедитесь, что включен именно BLE режим.`);
+        }
+
+        const connected = await nativeBlePlugin.connect({ deviceId: matched.id });
+        btDevice = {
+          id: connected?.id || matched.id,
+          name: connected?.name || matched.name || 'Unknown device',
+          native: true,
+        };
+        btWriteCharacteristic = { native: true };
+        setBtStatus(`подключен: ${btDevice.name}`);
+        return;
+      }
+
       if (!navigator.bluetooth) {
         throw new Error('Web Bluetooth не поддерживается в этом браузере.');
       }
@@ -457,6 +506,15 @@
       const payload = new Uint8Array(init.length + text.length);
       payload.set(init, 0);
       payload.set(text, init.length);
+
+      if (nativeBlePlugin && btDevice?.native) {
+        await nativeBlePlugin.write({
+          base64: toBase64(payload),
+          chunkSize: 180,
+        });
+        return;
+      }
+
       await writeChunks(btWriteCharacteristic, payload);
     };
 
@@ -547,14 +605,21 @@
       receiptEl.textContent = 'Чек появится здесь...';
     });
 
-    if (!navigator.bluetooth) {
+    if (!navigator.bluetooth && !nativeBlePlugin) {
       btConnectBtn.style.display = 'none';
       btPrintBtn.style.display = 'none';
       setBtStatus('Bluetooth Web API недоступен. Используйте «Печать» или «Поделиться чеком».');
+    } else if (nativeBlePlugin) {
+      setBtStatus('доступен нативный Bluetooth. Нажмите «Подключить Bluetooth».');
+    }
+
+    if (!navigator.share) {
+      shareBtn.style.display = 'none';
     }
 
     if (isIos) {
       shareHintEl.style.display = 'block';
+      printBtn.textContent = 'Печать (AirPrint)';
     }
 
     addRow();

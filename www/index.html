@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="format-detection" content="telephone=no" />
+  <title>Печать чеков</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --paper: #fffdf9;
+      --ink: #1f1b16;
+      --line: #d7cbb7;
+      --accent: #b55e2d;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at top right, #e9dfcf, var(--bg) 45%);
+      min-height: 100vh;
+      padding:
+        calc(16px + env(safe-area-inset-top))
+        calc(16px + env(safe-area-inset-right))
+        calc(16px + env(safe-area-inset-bottom))
+        calc(16px + env(safe-area-inset-left));
+    }
+
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(43, 30, 14, 0.08);
+    }
+
+    h1, h2 { margin: 0 0 12px; }
+
+    .row {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr auto;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    input, button {
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      font-size: 16px;
+    }
+
+    button {
+      cursor: pointer;
+      background: #fff;
+    }
+
+    .btn-accent {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .receipt {
+      background: #fff;
+      border: 1px dashed #999;
+      padding: 12px;
+      white-space: pre;
+      font-family: "Courier New", monospace;
+      font-size: 13px;
+      min-height: 360px;
+      overflow: auto;
+    }
+
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .history {
+      margin-top: 12px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+    .history h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+    .history-list {
+      max-height: 180px;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .history-item {
+      width: 100%;
+      text-align: left;
+      font-size: 13px;
+      padding: 8px;
+    }
+
+    @media (max-width: 860px) {
+      .wrap { grid-template-columns: 1fr; }
+      .row { grid-template-columns: 1fr; }
+      .card { padding: 14px; }
+      h1, h2 { margin-bottom: 10px; }
+    }
+
+    @media print {
+      @page { size: 58mm 1000mm; margin: 2mm; }
+      body { background: #fff; padding: 0; }
+      .wrap { display: block; }
+      .card:first-child { display: none; }
+      .card:last-child { border: none; box-shadow: none; padding: 0; }
+      .card:last-child h2 { display: none; }
+      #bt-status { display: none; }
+      .actions { display: none !important; }
+      .history { display: none !important; }
+      .receipt {
+        border: none;
+        min-height: auto;
+        width: 48mm;
+        max-width: 48mm;
+        font-size: 10px;
+        line-height: 1.2;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card">
+      <h1>Касса</h1>
+      <p>Добавляй позиции и печатай чек.</p>
+
+      <div id="items"></div>
+
+      <div class="actions">
+        <button id="add">+ Добавить позицию</button>
+        <button id="build" class="btn-accent">Сформировать чек</button>
+        <button id="new-check" style="display:none;">Новый чек</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Чек</h2>
+      <div id="receipt" class="receipt">Чек появится здесь...</div>
+      <p id="view-mode" style="margin: 8px 0 0; font-size: 13px; display:none;">Открыт сохраненный чек (только просмотр)</p>
+      <p id="bt-status" style="margin: 10px 0 0; font-size: 13px;">Bluetooth: не подключен</p>
+      <div class="actions" style="margin-top: 10px;">
+        <button id="print" class="btn-accent">Печать</button>
+        <button id="share">Отправить в Xprinter</button>
+        <button id="bt-connect">Подключить Bluetooth</button>
+        <button id="bt-print" class="btn-accent">Печать по Bluetooth</button>
+      </div>
+      <p id="share-hint" style="margin: 8px 0 0; font-size: 13px; display:none;">Для iPhone: нажмите «Отправить в Xprinter» и выберите приложение Xprinter в меню Поделиться.</p>
+      <div class="history">
+        <div class="actions" style="margin-bottom: 8px;">
+          <h3 style="margin:0; align-self:center;">История чеков</h3>
+          <button id="clear-history">Очистить</button>
+        </div>
+        <div id="history-list" class="history-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const itemsEl = document.getElementById('items');
+    const receiptEl = document.getElementById('receipt');
+    const addBtn = document.getElementById('add');
+    const buildBtn = document.getElementById('build');
+    const newCheckBtn = document.getElementById('new-check');
+    const printBtn = document.getElementById('print');
+    const shareBtn = document.getElementById('share');
+    const btConnectBtn = document.getElementById('bt-connect');
+    const btPrintBtn = document.getElementById('bt-print');
+    const btStatusEl = document.getElementById('bt-status');
+    const shareHintEl = document.getElementById('share-hint');
+    const viewModeEl = document.getElementById('view-mode');
+    const historyListEl = document.getElementById('history-list');
+    const clearHistoryBtn = document.getElementById('clear-history');
+
+    let btDevice = null;
+    let btWriteCharacteristic = null;
+    let viewingHistoryId = null;
+    const HISTORY_KEY = 'receipt_history_v1';
+    const HISTORY_LIMIT = 50;
+
+    const PAPER_COLUMNS = 32;
+    const ITEM_COL = 16;
+    const QTY_COL = 4;
+    const PRICE_COL = 6;
+    const SUM_COL = 6;
+    const SEP = '-'.repeat(PAPER_COLUMNS);
+    const EQ = '='.repeat(PAPER_COLUMNS);
+
+    const padRight = (v, w) => String(v).slice(0, w).padEnd(w, ' ');
+    const padLeft = (v, w) => {
+      const text = String(v);
+      if (text.length >= w) return text.slice(-w);
+      return text.padStart(w, ' ');
+    };
+    const formatQty = (value) => {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '0';
+      return n.toFixed(2).replace(/\.?0+$/, '');
+    };
+    const formatCompact = (value) => {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '0';
+      return n.toFixed(2).replace(/\.?0+$/, '');
+    };
+    const CP866_CHAR_MAP = {
+      'А': 0x80, 'Б': 0x81, 'В': 0x82, 'Г': 0x83, 'Д': 0x84, 'Е': 0x85, 'Ж': 0x86, 'З': 0x87,
+      'И': 0x88, 'Й': 0x89, 'К': 0x8A, 'Л': 0x8B, 'М': 0x8C, 'Н': 0x8D, 'О': 0x8E, 'П': 0x8F,
+      'Р': 0x90, 'С': 0x91, 'Т': 0x92, 'У': 0x93, 'Ф': 0x94, 'Х': 0x95, 'Ц': 0x96, 'Ч': 0x97,
+      'Ш': 0x98, 'Щ': 0x99, 'Ъ': 0x9A, 'Ы': 0x9B, 'Ь': 0x9C, 'Э': 0x9D, 'Ю': 0x9E, 'Я': 0x9F,
+      'а': 0xA0, 'б': 0xA1, 'в': 0xA2, 'г': 0xA3, 'д': 0xA4, 'е': 0xA5, 'ж': 0xA6, 'з': 0xA7,
+      'и': 0xA8, 'й': 0xA9, 'к': 0xAA, 'л': 0xAB, 'м': 0xAC, 'н': 0xAD, 'о': 0xAE, 'п': 0xAF,
+      'р': 0xE0, 'с': 0xE1, 'т': 0xE2, 'у': 0xE3, 'ф': 0xE4, 'х': 0xE5, 'ц': 0xE6, 'ч': 0xE7,
+      'ш': 0xE8, 'щ': 0xE9, 'ъ': 0xEA, 'ы': 0xEB, 'ь': 0xEC, 'э': 0xED, 'ю': 0xEE, 'я': 0xEF,
+      'Ё': 0xF0, 'ё': 0xF1, '№': 0xFC
+    };
+    const encodeCp866 = (text) => {
+      const bytes = [];
+      for (const ch of text) {
+        const code = ch.charCodeAt(0);
+        if (code <= 0x7F) {
+          bytes.push(code);
+          continue;
+        }
+        bytes.push(CP866_CHAR_MAP[ch] ?? 0x3F);
+      }
+      return new Uint8Array(bytes);
+    };
+    const escapeHtml = (text) => String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+    const isIos = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const cap = window.Capacitor;
+    const isNativeCapacitor = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+    const isNativeIos = isNativeCapacitor && cap.getPlatform && cap.getPlatform() === 'ios';
+    const nativeBlePlugin = isNativeIos ? cap.Plugins?.BlePrinter : null;
+    const printerNamePrefixes = ['P502A', 'Xprinter', 'XP-P502A', 'XP-'];
+
+    const toBase64 = (bytes) => {
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      }
+      return btoa(binary);
+    };
+
+    const loadHistory = () => {
+      try {
+        const raw = localStorage.getItem(HISTORY_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed;
+      } catch {
+        return [];
+      }
+    };
+
+    const saveHistory = (history) => {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, HISTORY_LIMIT)));
+    };
+
+    const formatHistoryDate = (iso) => {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '-';
+      return d.toLocaleString('ru-RU');
+    };
+
+    const renderHistory = () => {
+      const history = loadHistory();
+      if (!history.length) {
+        historyListEl.innerHTML = '<div style="font-size:13px; opacity:.7;">История пуста</div>';
+        return;
+      }
+
+      historyListEl.innerHTML = history.map((entry) => {
+        const title = escapeHtml(entry.title || `Чек ${entry.id}`);
+        const date = escapeHtml(formatHistoryDate(entry.createdAt));
+        return `<button class="history-item" type="button" data-id="${entry.id}">${date} • ${title}</button>`;
+      }).join('');
+    };
+
+    const addReceiptToHistory = (receiptText, items) => {
+      const history = loadHistory();
+      const title = items[0]?.name || 'Без названия';
+      const id = Date.now();
+      history.unshift({
+        id,
+        title,
+        createdAt: new Date().toISOString(),
+        receiptText,
+      });
+      saveHistory(history);
+      renderHistory();
+    };
+
+    const showReceiptFromHistory = (id) => {
+      const history = loadHistory();
+      const entry = history.find((x) => String(x.id) === String(id));
+      if (!entry) return;
+      viewingHistoryId = entry.id;
+      receiptEl.textContent = entry.receiptText;
+      setEditorDisabled(true);
+      viewModeEl.style.display = 'block';
+      newCheckBtn.style.display = '';
+    };
+
+    const setEditorDisabled = (disabled) => {
+      addBtn.disabled = disabled;
+      buildBtn.disabled = disabled;
+      const inputs = itemsEl.querySelectorAll('input, button');
+      inputs.forEach((el) => { el.disabled = disabled; });
+    };
+
+    const addRow = (name = '', qty = '', price = '') => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = `
+        <input placeholder="Название" value="${name}" />
+        <input type="number" step="0.01" min="0" placeholder="Кол-во" value="${qty}" />
+        <input type="number" step="0.01" min="0" placeholder="Цена" value="${price}" />
+        <button type="button">X</button>
+      `;
+      row.querySelector('button').addEventListener('click', () => row.remove());
+      itemsEl.appendChild(row);
+    };
+
+    const collect = () => {
+      const rows = [...itemsEl.querySelectorAll('.row')];
+      const items = [];
+      for (const row of rows) {
+        const [nameEl, qtyEl, priceEl] = row.querySelectorAll('input');
+        const name = nameEl.value.trim();
+        const qty = Number(qtyEl.value);
+        const price = Number(priceEl.value);
+        if (!name) continue;
+        if (!Number.isFinite(qty) || qty <= 0) continue;
+        if (!Number.isFinite(price) || price <= 0) continue;
+        items.push({ name, qty, price });
+      }
+      return items;
+    };
+
+    const buildReceipt = (items) => {
+      const now = new Date();
+      const receiptNo = now.getTime();
+      const receiptShort = String(receiptNo).slice(-8);
+      const dateShort = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const lines = [];
+      lines.push(EQ);
+      lines.push('KASSA RECEIPT'.padStart(22, ' ').padEnd(PAPER_COLUMNS, ' '));
+      lines.push(EQ);
+      lines.push(`Date: ${dateShort}`);
+      lines.push(`Receipt: ${receiptShort}`);
+      lines.push(SEP);
+      lines.push(`${padRight('Item', ITEM_COL)}${padLeft('Qty', QTY_COL)}${padLeft('Price', PRICE_COL)}${padLeft('Sum', SUM_COL)}`);
+      lines.push(SEP);
+
+      let total = 0;
+      for (const item of items) {
+        const sum = item.qty * item.price;
+        total += sum;
+        lines.push(`${padRight(item.name, ITEM_COL)}${padLeft(formatQty(item.qty), QTY_COL)}${padLeft(formatCompact(item.price), PRICE_COL)}${padLeft(formatCompact(sum), SUM_COL)}`);
+      }
+
+      lines.push(SEP);
+      lines.push(`${padRight('TOTAL:', ITEM_COL + QTY_COL + PRICE_COL)}${padLeft(formatCompact(total), SUM_COL)}`);
+      lines.push(EQ);
+      lines.push('Thank you for your purchase!');
+      return lines.join('\n');
+    };
+
+    const setBtStatus = (text) => {
+      btStatusEl.textContent = `Bluetooth: ${text}`;
+    };
+
+    const getCurrentReceiptText = () => {
+      const current = receiptEl.textContent.trim();
+      if (current && current !== 'Чек появится здесь...' && current !== 'Добавьте хотя бы одну корректную позицию.') {
+        return current + '\n';
+      }
+
+      const items = collect();
+      if (!items.length) {
+        throw new Error('Добавьте хотя бы одну корректную позицию.');
+      }
+
+      const generated = buildReceipt(items);
+      receiptEl.textContent = generated;
+      return generated + '\n';
+    };
+
+    const findWritableCharacteristic = async (server) => {
+      const services = await server.getPrimaryServices();
+      for (const service of services) {
+        const characteristics = await service.getCharacteristics();
+        for (const characteristic of characteristics) {
+          if (characteristic.properties.write || characteristic.properties.writeWithoutResponse) {
+            return characteristic;
+          }
+        }
+      }
+      return null;
+    };
+
+    const connectBluetoothPrinter = async () => {
+      if (nativeBlePlugin) {
+        const result = await nativeBlePlugin.scan({ timeout: 7000 });
+        const devices = Array.isArray(result?.devices) ? result.devices : [];
+        const matched = devices.find((device) => {
+          const name = String(device?.name || '').toLowerCase();
+          return printerNamePrefixes.some((prefix) => name.startsWith(prefix.toLowerCase()));
+        });
+
+        if (!matched) {
+          throw new Error(`Не найден BLE-принтер (${devices.length} устройств рядом). Убедитесь, что включен именно BLE режим.`);
+        }
+
+        const connected = await nativeBlePlugin.connect({ deviceId: matched.id });
+        btDevice = {
+          id: connected?.id || matched.id,
+          name: connected?.name || matched.name || 'Unknown device',
+          native: true,
+        };
+        btWriteCharacteristic = { native: true };
+        setBtStatus(`подключен: ${btDevice.name}`);
+        return;
+      }
+
+      if (!navigator.bluetooth) {
+        throw new Error('Web Bluetooth не поддерживается в этом браузере.');
+      }
+
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [
+          { name: 'P502A-1529' },
+          { name: 'Xprinter XP-P502A' },
+          { namePrefix: 'P502A' },
+          { namePrefix: 'Xprinter' },
+          { namePrefix: 'XP-P502A' },
+          { namePrefix: 'XP-' },
+        ],
+        optionalServices: [
+          'battery_service',
+          'device_information',
+          '0000ffe0-0000-1000-8000-00805f9b34fb',
+          '000018f0-0000-1000-8000-00805f9b34fb',
+        ],
+      });
+
+      const server = await device.gatt.connect();
+      const writable = await findWritableCharacteristic(server);
+      if (!writable) {
+        throw new Error('Не найдена характеристика записи. Принтер может быть не BLE.');
+      }
+
+      btDevice = device;
+      btWriteCharacteristic = writable;
+      setBtStatus(`подключен: ${device.name || 'Unknown device'}`);
+    };
+
+    const writeChunks = async (characteristic, bytes, size = 180) => {
+      for (let offset = 0; offset < bytes.length; offset += size) {
+        const chunk = bytes.slice(offset, offset + size);
+        if (characteristic.properties.writeWithoutResponse) {
+          await characteristic.writeValueWithoutResponse(chunk);
+        } else {
+          await characteristic.writeValue(chunk);
+        }
+      }
+    };
+
+    const printViaBluetooth = async () => {
+      if (!btWriteCharacteristic) {
+        throw new Error('Сначала подключите Bluetooth-принтер.');
+      }
+      const receiptText = getCurrentReceiptText();
+      // ESC @ (init), ESC t 17 (CP866), text, LF LF
+      const init = new Uint8Array([0x1B, 0x40, 0x1B, 0x74, 0x11]);
+      const text = encodeCp866(receiptText + '\n\n');
+      const payload = new Uint8Array(init.length + text.length);
+      payload.set(init, 0);
+      payload.set(text, init.length);
+
+      if (nativeBlePlugin && btDevice?.native) {
+        await nativeBlePlugin.write({
+          base64: toBase64(payload),
+          chunkSize: 180,
+        });
+        return;
+      }
+
+      await writeChunks(btWriteCharacteristic, payload);
+    };
+
+    const shareReceipt = async () => {
+      if (!navigator.share) {
+        throw new Error('Функция Поделиться не поддерживается в этом браузере.');
+      }
+
+      const receiptText = getCurrentReceiptText();
+      await navigator.share({
+        title: 'Чек',
+        text: receiptText,
+      });
+    };
+
+    addBtn.addEventListener('click', () => addRow());
+
+    buildBtn.addEventListener('click', () => {
+      const items = collect();
+      if (!items.length) {
+        receiptEl.textContent = 'Добавьте хотя бы одну корректную позицию.';
+        return;
+      }
+      const receiptText = buildReceipt(items);
+      receiptEl.textContent = receiptText;
+      addReceiptToHistory(receiptText, items);
+      viewingHistoryId = null;
+      setEditorDisabled(false);
+      viewModeEl.style.display = 'none';
+      newCheckBtn.style.display = 'none';
+    });
+
+    printBtn.addEventListener('click', () => window.print());
+
+    shareBtn.addEventListener('click', async () => {
+      try {
+        await shareReceipt();
+      } catch (error) {
+        if (error && error.name === 'AbortError') return;
+        setBtStatus(`ошибка share: ${error.message}`);
+      }
+    });
+
+    btConnectBtn.addEventListener('click', async () => {
+      setBtStatus('подключение...');
+      try {
+        await connectBluetoothPrinter();
+      } catch (error) {
+        if (error && error.name === 'NotFoundError') {
+          setBtStatus('принтер не найден в BLE. Для этой модели используйте кнопку "Печать" и выберите системный принтер macOS.');
+        } else {
+          setBtStatus(`ошибка: ${error.message}`);
+        }
+      }
+    });
+
+    btPrintBtn.addEventListener('click', async () => {
+      try {
+        await printViaBluetooth();
+        setBtStatus(`чек отправлен: ${btDevice?.name || 'Unknown device'}`);
+      } catch (error) {
+        setBtStatus(`ошибка: ${error.message}`);
+      }
+    });
+
+    historyListEl.addEventListener('click', (event) => {
+      const target = event.target.closest('[data-id]');
+      if (!target) return;
+      showReceiptFromHistory(target.getAttribute('data-id'));
+    });
+
+    clearHistoryBtn.addEventListener('click', () => {
+      localStorage.removeItem(HISTORY_KEY);
+      renderHistory();
+      if (viewingHistoryId) {
+        viewingHistoryId = null;
+        setEditorDisabled(false);
+        viewModeEl.style.display = 'none';
+        newCheckBtn.style.display = 'none';
+      }
+    });
+
+    newCheckBtn.addEventListener('click', () => {
+      viewingHistoryId = null;
+      setEditorDisabled(false);
+      viewModeEl.style.display = 'none';
+      newCheckBtn.style.display = 'none';
+      receiptEl.textContent = 'Чек появится здесь...';
+    });
+
+    if (!navigator.bluetooth && !nativeBlePlugin) {
+      btConnectBtn.style.display = 'none';
+      btPrintBtn.style.display = 'none';
+      setBtStatus('Bluetooth Web API недоступен. Используйте «Печать» или «Поделиться чеком».');
+    } else if (nativeBlePlugin) {
+      setBtStatus('доступен нативный Bluetooth. Нажмите «Подключить Bluetooth».');
+    }
+
+    if (!navigator.share) {
+      shareBtn.style.display = 'none';
+    }
+
+    if (isIos) {
+      shareHintEl.style.display = 'block';
+      printBtn.textContent = 'Печать (AirPrint)';
+    }
+
+    addRow();
+    renderHistory();
+  </script>
+</body>
+</html>

@@ -12,6 +12,7 @@
     "dist:mac": "electron-builder --mac dmg zip"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.1.0",
     "electron": "^36.1.0",
     "electron-builder": "^26.0.12"
   },
@@ -36,5 +37,9 @@
     "directories": {
       "output": "dist"
     }
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.1.0",
+    "@capacitor/ios": "^8.1.0"
   }
 }
