@@ -146,6 +146,15 @@
       <h1>Касса</h1>
       <p>Добавляй позиции и печатай чек.</p>
 
+      <p style="margin: 0 0 6px;">Дата и время чека</p>
+      <div class="row" style="grid-template-columns: 1fr auto;">
+        <input id="receipt-datetime" type="datetime-local" />
+        <button id="receipt-now" type="button">Сейчас</button>
+      </div>
+      <div class="row" style="grid-template-columns: 1fr;">
+        <input id="receipt-number" placeholder="Номер квитанции (необязательно)" />
+      </div>
+
       <div id="items"></div>
 
       <div class="actions">
@@ -192,6 +201,9 @@
     const viewModeEl = document.getElementById('view-mode');
     const historyListEl = document.getElementById('history-list');
     const clearHistoryBtn = document.getElementById('clear-history');
+    const receiptDateInput = document.getElementById('receipt-datetime');
+    const receiptNowBtn = document.getElementById('receipt-now');
+    const receiptNumberInput = document.getElementById('receipt-number');
 
     let btDevice = null;
     let btWriteCharacteristic = null;
@@ -333,6 +345,9 @@
     const setEditorDisabled = (disabled) => {
       addBtn.disabled = disabled;
       buildBtn.disabled = disabled;
+      if (receiptDateInput) receiptDateInput.disabled = disabled;
+      if (receiptNowBtn) receiptNowBtn.disabled = disabled;
+      if (receiptNumberInput) receiptNumberInput.disabled = disabled;
       const inputs = itemsEl.querySelectorAll('input, button');
       inputs.forEach((el) => { el.disabled = disabled; });
     };
@@ -348,6 +363,29 @@
       `;
       row.querySelector('button').addEventListener('click', () => row.remove());
       itemsEl.appendChild(row);
+    };
+
+    const formatInputDateTime = (date) => {
+      const pad = (v) => String(v).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    };
+
+    const setDateInputNow = () => {
+      if (!receiptDateInput) return;
+      receiptDateInput.value = formatInputDateTime(new Date());
+    };
+
+    const getSelectedReceiptDate = () => {
+      if (receiptDateInput && receiptDateInput.value) {
+        const d = new Date(receiptDateInput.value);
+        if (!Number.isNaN(d.getTime())) return d;
+      }
+      return new Date();
+    };
+
+    const getSelectedReceiptNumber = (fallback) => {
+      const raw = receiptNumberInput ? receiptNumberInput.value.trim() : '';
+      return raw || fallback;
     };
 
     const collect = () => {
@@ -367,9 +405,9 @@
     };
 
     const buildReceipt = (items) => {
-      const now = new Date();
+      const now = getSelectedReceiptDate();
       const receiptNo = now.getTime();
-      const receiptShort = String(receiptNo).slice(-8);
+      const receiptShort = getSelectedReceiptNumber(String(receiptNo).slice(-8));
       const dateShort = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
       const lines = [];
       lines.push(EQ);
@@ -531,6 +569,9 @@
     };
 
     addBtn.addEventListener('click', () => addRow());
+    if (receiptNowBtn) {
+      receiptNowBtn.addEventListener('click', () => setDateInputNow());
+    }
 
     buildBtn.addEventListener('click', () => {
       const items = collect();
@@ -603,6 +644,7 @@
       viewModeEl.style.display = 'none';
       newCheckBtn.style.display = 'none';
       receiptEl.textContent = 'Чек появится здесь...';
+      setDateInputNow();
     });
 
     if (!navigator.bluetooth && !nativeBlePlugin) {
@@ -623,6 +665,7 @@
     }
 
     addRow();
+    setDateInputNow();
     renderHistory();
   </script>
 </body>
