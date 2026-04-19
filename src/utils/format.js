@@ -10,8 +10,18 @@ const padLeft = (value, width) => {
   return text.length >= width ? text.slice(0, width) : ' '.repeat(width - text.length) + text;
 };
 
+const padCenter = (value, width) => {
+  const text = String(value);
+  if (text.length >= width) return text.slice(0, width);
+  const total = width - text.length;
+  const left = Math.ceil(total / 2);
+  const right = total - left;
+  return ' '.repeat(left) + text + ' '.repeat(right);
+};
+
 module.exports = {
   formatMoney,
   padRight,
   padLeft,
+  padCenter,
 };

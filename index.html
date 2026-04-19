@@ -111,6 +111,21 @@
       font-size: 13px;
       padding: 8px;
     }
+    .history-entry {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+      align-items: stretch;
+    }
+    .history-item {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .history-delete {
+      padding: 8px 10px;
+      min-width: 40px;
+    }
 
     @media (max-width: 860px) {
       .wrap { grid-template-columns: 1fr; }
@@ -211,9 +226,9 @@
     const HISTORY_KEY = 'receipt_history_v1';
     const HISTORY_LIMIT = 50;
 
-    const PAPER_COLUMNS = 32;
-    const ITEM_COL = 16;
-    const QTY_COL = 4;
+    const PAPER_COLUMNS = 36;
+    const ITEM_COL = 18;
+    const QTY_COL = 3;
     const PRICE_COL = 6;
     const SUM_COL = 6;
     const SEP = '-'.repeat(PAPER_COLUMNS);
@@ -224,6 +239,14 @@
       const text = String(v);
       if (text.length >= w) return text.slice(-w);
       return text.padStart(w, ' ');
+    };
+    const padCenter = (v, w) => {
+      const text = String(v);
+      if (text.length >= w) return text.slice(0, w);
+      const total = w - text.length;
+      const left = Math.ceil(total / 2);
+      const right = total - left;
+      return ' '.repeat(left) + text + ' '.repeat(right);
     };
     const formatQty = (value) => {
       const n = Number(value);
@@ -313,7 +336,12 @@
       historyListEl.innerHTML = history.map((entry) => {
         const title = escapeHtml(entry.title || `Чек ${entry.id}`);
         const date = escapeHtml(formatHistoryDate(entry.createdAt));
-        return `<button class="history-item" type="button" data-id="${entry.id}">${date} • ${title}</button>`;
+        return `
+          <div class="history-entry">
+            <button class="history-item" type="button" data-id="${entry.id}">${date} • ${title}</button>
+            <button class="history-delete" type="button" data-delete-id="${entry.id}">X</button>
+          </div>
+        `;
       }).join('');
     };
 
@@ -340,6 +368,25 @@
       setEditorDisabled(true);
       viewModeEl.style.display = 'block';
       newCheckBtn.style.display = '';
+    };
+
+    const exitHistoryView = () => {
+      viewingHistoryId = null;
+      setEditorDisabled(false);
+      viewModeEl.style.display = 'none';
+      newCheckBtn.style.display = 'none';
+    };
+
+    const deleteHistoryEntry = (id) => {
+      const history = loadHistory();
+      const nextHistory = history.filter((entry) => String(entry.id) !== String(id));
+      if (nextHistory.length === history.length) return;
+      saveHistory(nextHistory);
+      renderHistory();
+      if (String(viewingHistoryId) === String(id)) {
+        exitHistoryView();
+        receiptEl.textContent = 'Чек появится здесь...';
+      }
     };
 
     const setEditorDisabled = (disabled) => {
@@ -416,18 +463,18 @@
       lines.push(`Date: ${dateShort}`);
       lines.push(`Receipt: ${receiptShort}`);
       lines.push(SEP);
-      lines.push(`${padRight('Item', ITEM_COL)}${padLeft('Qty', QTY_COL)}${padLeft('Price', PRICE_COL)}${padLeft('Sum', SUM_COL)}`);
+      lines.push(`${padRight('Item', ITEM_COL)} ${padCenter('Qty', QTY_COL)} ${padCenter('Price', PRICE_COL)} ${padCenter('Sum', SUM_COL)}`);
       lines.push(SEP);
 
       let total = 0;
       for (const item of items) {
         const sum = item.qty * item.price;
         total += sum;
-        lines.push(`${padRight(item.name, ITEM_COL)}${padLeft(formatQty(item.qty), QTY_COL)}${padLeft(formatCompact(item.price), PRICE_COL)}${padLeft(formatCompact(sum), SUM_COL)}`);
+        lines.push(`${padRight(item.name, ITEM_COL)} ${padLeft(formatQty(item.qty), QTY_COL)} ${padLeft(formatCompact(item.price), PRICE_COL)} ${padLeft(formatCompact(sum), SUM_COL)}`);
       }
 
       lines.push(SEP);
-      lines.push(`${padRight('TOTAL:', ITEM_COL + QTY_COL + PRICE_COL)}${padLeft(formatCompact(total), SUM_COL)}`);
+      lines.push(`${padRight('TOTAL:', ITEM_COL + QTY_COL + PRICE_COL + 3)}${padLeft(formatCompact(total), SUM_COL)}`);
       lines.push(EQ);
       lines.push('Thank you for your purchase!');
       return lines.join('\n');
@@ -622,27 +669,35 @@
     });
 
     historyListEl.addEventListener('click', (event) => {
+      const deleteButton = event.target.closest('[data-delete-id]');
+      if (deleteButton) {
+        const id = deleteButton.getAttribute('data-delete-id');
+        const confirmed = window.confirm('Удалить этот чек из истории?');
+        if (!confirmed) return;
+        deleteHistoryEntry(id);
+        return;
+      }
+
       const target = event.target.closest('[data-id]');
       if (!target) return;
       showReceiptFromHistory(target.getAttribute('data-id'));
     });
 
     clearHistoryBtn.addEventListener('click', () => {
+      const history = loadHistory();
+      if (!history.length) return;
+      const confirmed = window.confirm('Очистить всю историю чеков?');
+      if (!confirmed) return;
       localStorage.removeItem(HISTORY_KEY);
       renderHistory();
       if (viewingHistoryId) {
-        viewingHistoryId = null;
-        setEditorDisabled(false);
-        viewModeEl.style.display = 'none';
-        newCheckBtn.style.display = 'none';
+        exitHistoryView();
+        receiptEl.textContent = 'Чек появится здесь...';
       }
     });
 
     newCheckBtn.addEventListener('click', () => {
-      viewingHistoryId = null;
-      setEditorDisabled(false);
-      viewModeEl.style.display = 'none';
-      newCheckBtn.style.display = 'none';
+      exitHistoryView();
       receiptEl.textContent = 'Чек появится здесь...';
       setDateInputNow();
     });
