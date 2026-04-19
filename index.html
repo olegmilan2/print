@@ -113,7 +113,7 @@
     }
     .history-entry {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto auto;
       gap: 6px;
       align-items: stretch;
     }
@@ -121,6 +121,27 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .history-item.pending {
+      border-color: #c78b28;
+      background: #fff6df;
+      color: #7b5100;
+      font-weight: 600;
+    }
+    .history-item.printed {
+      border-color: #8fa89a;
+      background: #eef6f0;
+      color: #2f5d3a;
+    }
+    .history-confirm {
+      padding: 8px 10px;
+      min-width: 76px;
+      font-size: 12px;
+    }
+    .history-confirm.is-confirmed {
+      background: #e5efe8;
+      border-color: #8fa89a;
+      color: #2f5d3a;
     }
     .history-delete {
       padding: 8px 10px;
@@ -336,9 +357,13 @@
       historyListEl.innerHTML = history.map((entry) => {
         const title = escapeHtml(entry.title || `Чек ${entry.id}`);
         const date = escapeHtml(formatHistoryDate(entry.createdAt));
+        const printed = !!entry.printed;
+        const statusClass = printed ? 'printed' : 'pending';
+        const confirmLabel = printed ? 'Распечатан' : 'Подтвердить';
         return `
           <div class="history-entry">
-            <button class="history-item" type="button" data-id="${entry.id}">${date} • ${title}</button>
+            <button class="history-item ${statusClass}" type="button" data-id="${entry.id}">${date} • ${title}</button>
+            <button class="history-confirm ${printed ? 'is-confirmed' : ''}" type="button" data-confirm-id="${entry.id}">${confirmLabel}</button>
             <button class="history-delete" type="button" data-delete-id="${entry.id}">X</button>
           </div>
         `;
@@ -354,6 +379,7 @@
         title,
         createdAt: new Date().toISOString(),
         receiptText,
+        printed: false,
       });
       saveHistory(history);
       renderHistory();
@@ -387,6 +413,19 @@
         exitHistoryView();
         receiptEl.textContent = 'Чек появится здесь...';
       }
+    };
+
+    const confirmHistoryEntry = (id) => {
+      const history = loadHistory();
+      let changed = false;
+      const nextHistory = history.map((entry) => {
+        if (String(entry.id) !== String(id) || entry.printed) return entry;
+        changed = true;
+        return { ...entry, printed: true, printedAt: new Date().toISOString() };
+      });
+      if (!changed) return;
+      saveHistory(nextHistory);
+      renderHistory();
     };
 
     const setEditorDisabled = (disabled) => {
@@ -669,6 +708,13 @@
     });
 
     historyListEl.addEventListener('click', (event) => {
+      const confirmButton = event.target.closest('[data-confirm-id]');
+      if (confirmButton) {
+        const id = confirmButton.getAttribute('data-confirm-id');
+        confirmHistoryEntry(id);
+        return;
+      }
+
       const deleteButton = event.target.closest('[data-delete-id]');
       if (deleteButton) {
         const id = deleteButton.getAttribute('data-delete-id');
