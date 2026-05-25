@@ -637,7 +637,7 @@
       let total = 0;
       for (const item of items) {
         const sum = item.qty * item.price;
-        const detailText = `${formatQty(item.qty)}x${formatCompact(item.price)}`;
+        const detailText = `${formatQty(item.qty)} x ${formatCompact(item.price)}`;
         total += sum;
         lines.push(padRight(item.name, compactColumns));
         lines.push(`${padRight(detailText, detailCol)}${padLeft(formatCompact(sum), sumCol)}`);
