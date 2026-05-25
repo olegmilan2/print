@@ -261,10 +261,10 @@
     const HISTORY_LIMIT = 50;
 
     const PAPER_COLUMNS = 36;
-    const ITEM_COL = 18;
+    const ITEM_COL = 16;
     const QTY_COL = 3;
-    const PRICE_COL = 6;
-    const SUM_COL = 6;
+    const PRICE_COL = 5;
+    const SUM_COL = 5;
     const SEP = '-'.repeat(PAPER_COLUMNS);
     const EQ = '='.repeat(PAPER_COLUMNS);
 
@@ -607,7 +607,7 @@
       for (const item of items) {
         const sum = item.qty * item.price;
         total += sum;
-        lines.push(`${padRight(item.name, ITEM_COL)} ${padLeft(formatQty(item.qty), QTY_COL)} ${padLeft(formatCompact(item.price), PRICE_COL)} ${padLeft(formatCompact(sum), SUM_COL)}`);
+        lines.push(`${padRight(item.name, ITEM_COL)} ${padCenter(formatQty(item.qty), QTY_COL)} ${padCenter(formatCompact(item.price), PRICE_COL)} ${padCenter(formatCompact(sum), SUM_COL)}`);
       }
 
       lines.push(SEP);
@@ -617,41 +617,44 @@
       return lines.join('\n');
     };
 
-    const buildCompactReceipt = (items, now, receiptShort) => {
+    const buildCompactReceipt = (items, now, receiptShort, target = 'screen') => {
       const dateShort = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      const sumCol = 10;
-      const detailCol = PAPER_COLUMNS - sumCol - 1;
+      const compactColumns = target === 'printer' ? 32 : 24;
+      const sumCol = target === 'printer' ? 6 : 7;
+      const detailCol = compactColumns - sumCol;
+      const compactSep = '-'.repeat(compactColumns);
+      const compactEq = '='.repeat(compactColumns);
       const lines = [];
-      lines.push(EQ);
-      lines.push('KASSA RECEIPT'.padStart(22, ' ').padEnd(PAPER_COLUMNS, ' '));
-      lines.push(EQ);
+      lines.push(compactEq);
+      lines.push('KASSA RECEIPT'.padStart(20, ' ').padEnd(compactColumns, ' '));
+      lines.push(compactEq);
       lines.push(`Date: ${dateShort}`);
       lines.push(`Receipt: ${receiptShort}`);
-      lines.push(SEP);
-      lines.push(`${padRight('qty x price', detailCol)} ${padLeft('sum', sumCol)}`);
-      lines.push(SEP);
+      lines.push(compactSep);
+      lines.push(`${padRight('qtyxprice', detailCol)}${padLeft('sum', sumCol)}`);
+      lines.push(compactSep);
 
       let total = 0;
       for (const item of items) {
         const sum = item.qty * item.price;
-        const detailText = `${formatQty(item.qty)} x ${formatCompact(item.price)}`;
+        const detailText = `${formatQty(item.qty)}x${formatCompact(item.price)}`;
         total += sum;
-        lines.push(padRight(item.name, PAPER_COLUMNS));
-        lines.push(`${padRight(detailText, detailCol)} ${padLeft(formatCompact(sum), sumCol)}`);
-        lines.push(SEP);
+        lines.push(padRight(item.name, compactColumns));
+        lines.push(`${padRight(detailText, detailCol)}${padLeft(formatCompact(sum), sumCol)}`);
+        lines.push(compactSep);
       }
 
-      lines.push(`${padRight('TOTAL', detailCol)} ${padLeft(formatCompact(total), sumCol)}`);
-      lines.push(EQ);
+      lines.push(`${padRight('TOTAL', detailCol)}${padLeft(formatCompact(total), sumCol)}`);
+      lines.push(compactEq);
       return lines.join('\n');
     };
 
-    const buildReceipt = (items) => {
+    const buildReceipt = (items, target = 'screen') => {
       const now = getSelectedReceiptDate();
       const receiptNo = now.getTime();
       const receiptShort = getSelectedReceiptNumber(String(receiptNo).slice(-8));
       return getSelectedReceiptTemplate() === 'compact'
-        ? buildCompactReceipt(items, now, receiptShort)
+        ? buildCompactReceipt(items, now, receiptShort, target)
         : buildClassicReceipt(items, now, receiptShort);
     };
 
@@ -659,9 +662,9 @@
       btStatusEl.textContent = `Bluetooth: ${text}`;
     };
 
-    const getCurrentReceiptText = () => {
+    const getCurrentReceiptText = (target = 'screen') => {
       const current = receiptEl.textContent.trim();
-      if (current && current !== 'Чек появится здесь...' && current !== 'Добавьте хотя бы одну корректную позицию.') {
+      if (target === 'screen' && current && current !== 'Чек появится здесь...' && current !== 'Добавьте хотя бы одну корректную позицию.') {
         return current + '\n';
       }
 
@@ -670,8 +673,10 @@
         throw new Error('Добавьте хотя бы одну корректную позицию.');
       }
 
-      const generated = buildReceipt(items);
-      receiptEl.textContent = generated;
+      const generated = buildReceipt(items, target);
+      if (target === 'screen') {
+        receiptEl.textContent = generated;
+      }
       return generated + '\n';
     };
 
@@ -759,7 +764,7 @@
       if (!btWriteCharacteristic) {
         throw new Error('Сначала подключите Bluetooth-принтер.');
       }
-      const receiptText = getCurrentReceiptText();
+      const receiptText = getCurrentReceiptText('printer');
       // ESC @ (init), ESC t 23 (PT151/1251 for Xprinter), text, LF LF
       const init = new Uint8Array([0x1B, 0x40, 0x1B, 0x74, 0x17]);
       const text = encodeCp1251(receiptText + '\n\n');
@@ -783,7 +788,7 @@
         throw new Error('Функция Поделиться не поддерживается в этом браузере.');
       }
 
-      const receiptText = getCurrentReceiptText();
+      const receiptText = getCurrentReceiptText('printer');
       await navigator.share({
         title: 'Чек',
         text: receiptText,
