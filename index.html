@@ -113,7 +113,7 @@
     }
     .history-entry {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
       gap: 6px;
       align-items: stretch;
     }
@@ -136,6 +136,11 @@
     .history-confirm {
       padding: 8px 10px;
       min-width: 76px;
+      font-size: 12px;
+    }
+    .history-edit {
+      padding: 8px 10px;
+      min-width: 86px;
       font-size: 12px;
     }
     .history-confirm.is-confirmed {
@@ -190,6 +195,12 @@
       <div class="row" style="grid-template-columns: 1fr;">
         <input id="receipt-number" placeholder="Номер квитанции (необязательно)" />
       </div>
+      <div class="row" style="grid-template-columns: 1fr;">
+        <select id="receipt-template">
+          <option value="classic">Стандартный чек</option>
+          <option value="compact">Кассовый компактный</option>
+        </select>
+      </div>
 
       <div id="items"></div>
 
@@ -203,7 +214,7 @@
     <section class="card">
       <h2>Чек</h2>
       <div id="receipt" class="receipt">Чек появится здесь...</div>
-      <p id="view-mode" style="margin: 8px 0 0; font-size: 13px; display:none;">Открыт сохраненный чек (только просмотр)</p>
+      <p id="view-mode" style="margin: 8px 0 0; font-size: 13px; display:none;">Открыт сохраненный чек</p>
       <p id="bt-status" style="margin: 10px 0 0; font-size: 13px;">Bluetooth: не подключен</p>
       <div class="actions" style="margin-top: 10px;">
         <button id="print" class="btn-accent">Печать</button>
@@ -240,10 +251,12 @@
     const receiptDateInput = document.getElementById('receipt-datetime');
     const receiptNowBtn = document.getElementById('receipt-now');
     const receiptNumberInput = document.getElementById('receipt-number');
+    const receiptTemplateSelect = document.getElementById('receipt-template');
 
     let btDevice = null;
     let btWriteCharacteristic = null;
     let viewingHistoryId = null;
+    let editingHistoryId = null;
     const HISTORY_KEY = 'receipt_history_v1';
     const HISTORY_LIMIT = 50;
 
@@ -279,18 +292,11 @@
       if (!Number.isFinite(n)) return '0';
       return n.toFixed(2).replace(/\.?0+$/, '');
     };
-    const CP866_CHAR_MAP = {
-      'А': 0x80, 'Б': 0x81, 'В': 0x82, 'Г': 0x83, 'Д': 0x84, 'Е': 0x85, 'Ж': 0x86, 'З': 0x87,
-      'И': 0x88, 'Й': 0x89, 'К': 0x8A, 'Л': 0x8B, 'М': 0x8C, 'Н': 0x8D, 'О': 0x8E, 'П': 0x8F,
-      'Р': 0x90, 'С': 0x91, 'Т': 0x92, 'У': 0x93, 'Ф': 0x94, 'Х': 0x95, 'Ц': 0x96, 'Ч': 0x97,
-      'Ш': 0x98, 'Щ': 0x99, 'Ъ': 0x9A, 'Ы': 0x9B, 'Ь': 0x9C, 'Э': 0x9D, 'Ю': 0x9E, 'Я': 0x9F,
-      'а': 0xA0, 'б': 0xA1, 'в': 0xA2, 'г': 0xA3, 'д': 0xA4, 'е': 0xA5, 'ж': 0xA6, 'з': 0xA7,
-      'и': 0xA8, 'й': 0xA9, 'к': 0xAA, 'л': 0xAB, 'м': 0xAC, 'н': 0xAD, 'о': 0xAE, 'п': 0xAF,
-      'р': 0xE0, 'с': 0xE1, 'т': 0xE2, 'у': 0xE3, 'ф': 0xE4, 'х': 0xE5, 'ц': 0xE6, 'ч': 0xE7,
-      'ш': 0xE8, 'щ': 0xE9, 'ъ': 0xEA, 'ы': 0xEB, 'ь': 0xEC, 'э': 0xED, 'ю': 0xEE, 'я': 0xEF,
-      'Ё': 0xF0, 'ё': 0xF1, '№': 0xFC
+    const CP1251_CHAR_MAP = {
+      'Ё': 0xA8, 'Є': 0xAA, 'І': 0xB2, 'Ї': 0xAF, 'Ґ': 0xA5,
+      'ё': 0xB8, '№': 0xB9, 'є': 0xBA, 'і': 0xB3, 'ї': 0xBF, 'ґ': 0xB4
     };
-    const encodeCp866 = (text) => {
+    const encodeCp1251 = (text) => {
       const bytes = [];
       for (const ch of text) {
         const code = ch.charCodeAt(0);
@@ -298,7 +304,15 @@
           bytes.push(code);
           continue;
         }
-        bytes.push(CP866_CHAR_MAP[ch] ?? 0x3F);
+        if (CP1251_CHAR_MAP[ch] !== undefined) {
+          bytes.push(CP1251_CHAR_MAP[ch]);
+          continue;
+        }
+        if (code >= 0x0410 && code <= 0x044F) {
+          bytes.push(code - 0x0350);
+          continue;
+        }
+        bytes.push(0x3F);
       }
       return new Uint8Array(bytes);
     };
@@ -364,6 +378,7 @@
           <div class="history-entry">
             <button class="history-item ${statusClass}" type="button" data-id="${entry.id}">${date} • ${title}</button>
             <button class="history-confirm ${printed ? 'is-confirmed' : ''}" type="button" data-confirm-id="${entry.id}">${confirmLabel}</button>
+            <button class="history-edit" type="button" data-edit-id="${entry.id}">Редактировать</button>
             <button class="history-delete" type="button" data-delete-id="${entry.id}">X</button>
           </div>
         `;
@@ -379,9 +394,35 @@
         title,
         createdAt: new Date().toISOString(),
         receiptText,
+        items: items.map((item) => ({ ...item })),
+        receiptDate: receiptDateInput?.value || '',
+        receiptNumber: receiptNumberInput?.value.trim() || '',
+        receiptTemplate: getSelectedReceiptTemplate(),
         printed: false,
       });
       saveHistory(history);
+      renderHistory();
+    };
+
+    const updateHistoryEntry = (id, receiptText, items) => {
+      const history = loadHistory();
+      let changed = false;
+      const nextHistory = history.map((entry) => {
+        if (String(entry.id) !== String(id)) return entry;
+        changed = true;
+        return {
+          ...entry,
+          title: items[0]?.name || entry.title || 'Без названия',
+          receiptText,
+          items: items.map((item) => ({ ...item })),
+          receiptDate: receiptDateInput?.value || '',
+          receiptNumber: receiptNumberInput?.value.trim() || '',
+          receiptTemplate: getSelectedReceiptTemplate(),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      if (!changed) return;
+      saveHistory(nextHistory);
       renderHistory();
     };
 
@@ -390,16 +431,21 @@
       const entry = history.find((x) => String(x.id) === String(id));
       if (!entry) return;
       viewingHistoryId = entry.id;
+      editingHistoryId = null;
       receiptEl.textContent = entry.receiptText;
       setEditorDisabled(true);
+      viewModeEl.textContent = 'Открыт сохраненный чек (только просмотр)';
       viewModeEl.style.display = 'block';
+      buildBtn.textContent = 'Сформировать чек';
       newCheckBtn.style.display = '';
     };
 
     const exitHistoryView = () => {
       viewingHistoryId = null;
+      editingHistoryId = null;
       setEditorDisabled(false);
       viewModeEl.style.display = 'none';
+      buildBtn.textContent = 'Сформировать чек';
       newCheckBtn.style.display = 'none';
     };
 
@@ -413,6 +459,50 @@
         exitHistoryView();
         receiptEl.textContent = 'Чек появится здесь...';
       }
+    };
+
+    const parseHistoryReceiptItems = (receiptText) => {
+      const lines = String(receiptText || '').split('\n');
+      const sepIndexes = [];
+      lines.forEach((line, index) => {
+        if (/^-{10,}$/.test(line.trim())) sepIndexes.push(index);
+      });
+      if (sepIndexes.length < 3) return [];
+      const itemLines = lines.slice(sepIndexes[1] + 1, sepIndexes[2]).filter((line) => {
+        const text = line.trim();
+        return text && !/^item\s+/i.test(text);
+      });
+      return itemLines.map((line) => {
+        const name = line.slice(0, ITEM_COL).trim();
+        const qty = Number(line.slice(ITEM_COL + 1, ITEM_COL + 1 + QTY_COL).trim());
+        const price = Number(line.slice(ITEM_COL + 1 + QTY_COL + 1, ITEM_COL + 1 + QTY_COL + 1 + PRICE_COL).trim());
+        return { name, qty, price };
+      }).filter((item) => item.name && Number.isFinite(item.qty) && Number.isFinite(item.price));
+    };
+
+    const loadHistoryEntryForEdit = (id) => {
+      const history = loadHistory();
+      const entry = history.find((x) => String(x.id) === String(id));
+      if (!entry) return;
+      const items = Array.isArray(entry.items) && entry.items.length ? entry.items : parseHistoryReceiptItems(entry.receiptText);
+      if (!items.length) {
+        window.alert('Не удалось разобрать позиции этого чека для редактирования.');
+        return;
+      }
+
+      itemsEl.innerHTML = '';
+      items.forEach((item) => addRow(item.name, item.qty, item.price));
+      if (receiptDateInput) receiptDateInput.value = entry.receiptDate || '';
+      if (receiptNumberInput) receiptNumberInput.value = entry.receiptNumber || '';
+      setSelectedReceiptTemplate(entry.receiptTemplate || 'classic');
+      viewingHistoryId = entry.id;
+      editingHistoryId = entry.id;
+      setEditorDisabled(false);
+      receiptEl.textContent = entry.receiptText;
+      viewModeEl.textContent = 'Редактирование сохраненного чека';
+      viewModeEl.style.display = 'block';
+      buildBtn.textContent = 'Сохранить изменения';
+      newCheckBtn.style.display = '';
     };
 
     const confirmHistoryEntry = (id) => {
@@ -434,6 +524,7 @@
       if (receiptDateInput) receiptDateInput.disabled = disabled;
       if (receiptNowBtn) receiptNowBtn.disabled = disabled;
       if (receiptNumberInput) receiptNumberInput.disabled = disabled;
+      if (receiptTemplateSelect) receiptTemplateSelect.disabled = disabled;
       const inputs = itemsEl.querySelectorAll('input, button');
       inputs.forEach((el) => { el.disabled = disabled; });
     };
@@ -474,6 +565,16 @@
       return raw || fallback;
     };
 
+    const getSelectedReceiptTemplate = () => {
+      return receiptTemplateSelect?.value === 'compact' ? 'compact' : 'classic';
+    };
+
+    const setSelectedReceiptTemplate = (value) => {
+      if (receiptTemplateSelect) {
+        receiptTemplateSelect.value = value === 'compact' ? 'compact' : 'classic';
+      }
+    };
+
     const collect = () => {
       const rows = [...itemsEl.querySelectorAll('.row')];
       const items = [];
@@ -490,10 +591,7 @@
       return items;
     };
 
-    const buildReceipt = (items) => {
-      const now = getSelectedReceiptDate();
-      const receiptNo = now.getTime();
-      const receiptShort = getSelectedReceiptNumber(String(receiptNo).slice(-8));
+    const buildClassicReceipt = (items, now, receiptShort) => {
       const dateShort = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
       const lines = [];
       lines.push(EQ);
@@ -513,10 +611,48 @@
       }
 
       lines.push(SEP);
-      lines.push(`${padRight('TOTAL:', ITEM_COL + QTY_COL + PRICE_COL + 3)}${padLeft(formatCompact(total), SUM_COL)}`);
+      lines.push(`${padRight('TOTAL:', PAPER_COLUMNS - SUM_COL)}${padLeft(formatCompact(total), SUM_COL)}`);
       lines.push(EQ);
       lines.push('Thank you for your purchase!');
       return lines.join('\n');
+    };
+
+    const buildCompactReceipt = (items, now, receiptShort) => {
+      const dateShort = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const sumCol = 10;
+      const detailCol = PAPER_COLUMNS - sumCol - 1;
+      const lines = [];
+      lines.push(EQ);
+      lines.push('KASSA RECEIPT'.padStart(22, ' ').padEnd(PAPER_COLUMNS, ' '));
+      lines.push(EQ);
+      lines.push(`Date: ${dateShort}`);
+      lines.push(`Receipt: ${receiptShort}`);
+      lines.push(SEP);
+      lines.push(`${padRight('qty x price', detailCol)} ${padLeft('sum', sumCol)}`);
+      lines.push(SEP);
+
+      let total = 0;
+      for (const item of items) {
+        const sum = item.qty * item.price;
+        const detailText = `${formatQty(item.qty)} x ${formatCompact(item.price)}`;
+        total += sum;
+        lines.push(padRight(item.name, PAPER_COLUMNS));
+        lines.push(`${padRight(detailText, detailCol)} ${padLeft(formatCompact(sum), sumCol)}`);
+        lines.push(SEP);
+      }
+
+      lines.push(`${padRight('TOTAL', detailCol)} ${padLeft(formatCompact(total), sumCol)}`);
+      lines.push(EQ);
+      return lines.join('\n');
+    };
+
+    const buildReceipt = (items) => {
+      const now = getSelectedReceiptDate();
+      const receiptNo = now.getTime();
+      const receiptShort = getSelectedReceiptNumber(String(receiptNo).slice(-8));
+      return getSelectedReceiptTemplate() === 'compact'
+        ? buildCompactReceipt(items, now, receiptShort)
+        : buildClassicReceipt(items, now, receiptShort);
     };
 
     const setBtStatus = (text) => {
@@ -624,9 +760,9 @@
         throw new Error('Сначала подключите Bluetooth-принтер.');
       }
       const receiptText = getCurrentReceiptText();
-      // ESC @ (init), ESC t 17 (CP866), text, LF LF
-      const init = new Uint8Array([0x1B, 0x40, 0x1B, 0x74, 0x11]);
-      const text = encodeCp866(receiptText + '\n\n');
+      // ESC @ (init), ESC t 23 (PT151/1251 for Xprinter), text, LF LF
+      const init = new Uint8Array([0x1B, 0x40, 0x1B, 0x74, 0x17]);
+      const text = encodeCp1251(receiptText + '\n\n');
       const payload = new Uint8Array(init.length + text.length);
       payload.set(init, 0);
       payload.set(text, init.length);
@@ -667,11 +803,12 @@
       }
       const receiptText = buildReceipt(items);
       receiptEl.textContent = receiptText;
-      addReceiptToHistory(receiptText, items);
-      viewingHistoryId = null;
-      setEditorDisabled(false);
-      viewModeEl.style.display = 'none';
-      newCheckBtn.style.display = 'none';
+      if (editingHistoryId) {
+        updateHistoryEntry(editingHistoryId, receiptText, items);
+      } else {
+        addReceiptToHistory(receiptText, items);
+      }
+      exitHistoryView();
     });
 
     printBtn.addEventListener('click', () => window.print());
@@ -724,6 +861,12 @@
         return;
       }
 
+      const editButton = event.target.closest('[data-edit-id]');
+      if (editButton) {
+        loadHistoryEntryForEdit(editButton.getAttribute('data-edit-id'));
+        return;
+      }
+
       const target = event.target.closest('[data-id]');
       if (!target) return;
       showReceiptFromHistory(target.getAttribute('data-id'));
@@ -746,6 +889,7 @@
       exitHistoryView();
       receiptEl.textContent = 'Чек появится здесь...';
       setDateInputNow();
+      setSelectedReceiptTemplate('classic');
     });
 
     if (!navigator.bluetooth && !nativeBlePlugin) {
