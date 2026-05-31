@@ -119,8 +119,26 @@
     }
     .history-item {
       overflow: hidden;
+      text-align: left;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      white-space: normal;
+      align-items: flex-start;
+    }
+    .history-item-main {
+      width: 100%;
       text-overflow: ellipsis;
+      overflow: hidden;
       white-space: nowrap;
+      font-weight: 600;
+    }
+    .history-item-meta {
+      width: 100%;
+      font-size: 12px;
+      opacity: 0.8;
+      line-height: 1.2;
+      white-space: normal;
     }
     .history-item.pending {
       border-color: #c78b28;
@@ -147,6 +165,18 @@
       background: #e5efe8;
       border-color: #8fa89a;
       color: #2f5d3a;
+    }
+    .history-money {
+      padding: 6px 8px;
+      min-width: 38px;
+      max-width: 38px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .history-money.is-paid {
+      background: #eaf3ff;
+      border-color: #8ab4f8;
+      color: #1e4f9b;
     }
     .history-delete {
       padding: 8px 10px;
@@ -372,11 +402,17 @@
         const title = escapeHtml(entry.title || `Чек ${entry.id}`);
         const date = escapeHtml(formatHistoryDate(entry.createdAt));
         const printed = !!entry.printed;
+        const paid = !!entry.paid;
         const statusClass = printed ? 'printed' : 'pending';
         const confirmLabel = printed ? 'Распечатан' : 'Подтвердить';
+        const moneyLabel = '+';
         return `
           <div class="history-entry">
-            <button class="history-item ${statusClass}" type="button" data-id="${entry.id}">${date} • ${title}</button>
+            <button class="history-item ${statusClass}" type="button" data-id="${entry.id}">
+              <span class="history-item-main">${date} • ${title}</span>
+              <span class="history-item-meta">Деньги: ${paid ? '+' : '-'}</span>
+            </button>
+            <button class="history-money ${paid ? 'is-paid' : ''}" type="button" data-money-id="${entry.id}" title="Отметить деньги">${moneyLabel}</button>
             <button class="history-confirm ${printed ? 'is-confirmed' : ''}" type="button" data-confirm-id="${entry.id}">${confirmLabel}</button>
             <button class="history-edit" type="button" data-edit-id="${entry.id}">Редактировать</button>
             <button class="history-delete" type="button" data-delete-id="${entry.id}">X</button>
@@ -397,6 +433,7 @@
         items: items.map((item) => ({ ...item })),
         receiptDate: receiptDateInput?.value || '',
         receiptNumber: receiptNumberInput?.value.trim() || '',
+        paid: false,
         receiptTemplate: getSelectedReceiptTemplate(),
         printed: false,
       });
@@ -434,7 +471,9 @@
       editingHistoryId = null;
       receiptEl.textContent = entry.receiptText;
       setEditorDisabled(true);
-      viewModeEl.textContent = 'Открыт сохраненный чек (только просмотр)';
+      viewModeEl.textContent = entry.paid
+        ? 'Открыт сохраненный чек (деньги отмечены как полученные)'
+        : 'Открыт сохраненный чек (деньги еще не отмечены)';
       viewModeEl.style.display = 'block';
       buildBtn.textContent = 'Сформировать чек';
       newCheckBtn.style.display = '';
@@ -848,7 +887,26 @@
       }
     });
 
+    const toggleMoneyEntry = (id) => {
+      const history = loadHistory();
+      let changed = false;
+      const nextHistory = history.map((entry) => {
+        if (String(entry.id) !== String(id)) return entry;
+        changed = true;
+        return { ...entry, paid: !entry.paid, paidAt: !entry.paid ? new Date().toISOString() : undefined };
+      });
+      if (!changed) return;
+      saveHistory(nextHistory);
+      renderHistory();
+    };
+
     historyListEl.addEventListener('click', (event) => {
+      const moneyButton = event.target.closest('[data-money-id]');
+      if (moneyButton) {
+        toggleMoneyEntry(moneyButton.getAttribute('data-money-id'));
+        return;
+      }
+
       const confirmButton = event.target.closest('[data-confirm-id]');
       if (confirmButton) {
         const id = confirmButton.getAttribute('data-confirm-id');
